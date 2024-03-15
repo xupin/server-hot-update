@@ -75,20 +75,17 @@ func (r *Server) ListenAndServe(addr string) {
 	// 监听信道
 	go r.handleSignals()
 	// http服务
-	go func() {
-		httpServer := http.Server{
-			Addr:    addr,
-			Handler: r,
-		}
-		defer httpServer.Close()
-		err = httpServer.Serve(r.listener)
-		log.Printf("服务[%d]异常 %v", syscall.Getpid(), err)
-	}()
+	httpServer := http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+	go httpServer.Serve(r.listener)
 	// 通知父进程退出
 	if r.isChild() {
 		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
 	}
 	<-r.exit
+	httpServer.Close()
 	log.Printf("服务[%d]已关闭", syscall.Getpid())
 }
 
