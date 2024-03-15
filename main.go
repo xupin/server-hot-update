@@ -85,6 +85,7 @@ func (r *Server) ListenAndServe(addr string) {
 		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
 	}
 	<-r.exit
+	// 关闭http服务
 	httpServer.Close()
 	log.Printf("服务[%d]已关闭", syscall.Getpid())
 }
