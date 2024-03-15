@@ -27,6 +27,14 @@ func main() {
 	svr.ListenAndServe(":8550")
 }
 
+func NewServer() (svr *Server) {
+	svr = &Server{
+		exit:  make(chan bool, 1),
+		conns: make(map[string]*network.WsConn, 0),
+	}
+	return
+}
+
 func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// ws实例
 	conn := network.NewWS(&network.Options{})
@@ -40,7 +48,7 @@ func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		log.Printf("ws conn[%s]已关闭 \n", uuid)
 	}()
 	r.conns[uuid.String()] = conn
-	ver := "版本2"
+	ver := "版本1"
 	for {
 		if _, err := conn.Receive(); err != nil {
 			break
@@ -50,14 +58,6 @@ func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			Data: []byte(ver),
 		})
 	}
-}
-
-func NewServer() (svr *Server) {
-	svr = &Server{
-		exit:  make(chan bool, 1),
-		conns: make(map[string]*network.WsConn, 0),
-	}
-	return
 }
 
 func (r *Server) ListenAndServe(addr string) {
@@ -74,24 +74,21 @@ func (r *Server) ListenAndServe(addr string) {
 	}
 	// 监听信道
 	go r.handleSignals()
+	// http服务
+	go func() {
+		httpServer := http.Server{
+			Addr:    addr,
+			Handler: r,
+		}
+		defer httpServer.Close()
+		err = httpServer.Serve(r.listener)
+		log.Printf("服务[%d]异常 %v", syscall.Getpid(), err)
+	}()
 	// 通知父进程退出
 	if r.isChild() {
 		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
 	}
-	// http服务
-	httpServer := http.Server{
-		Addr:    addr,
-		Handler: r,
-	}
-	if err = httpServer.Serve(r.listener); err != nil {
-		log.Printf("服务[%d]异常 %v", syscall.Getpid(), err)
-	}
-	select {
-	case <-r.exit:
-		httpServer.Close()
-	case <-time.After(120 * time.Second):
-		httpServer.Close()
-	}
+	<-r.exit
 	log.Printf("服务[%d]已关闭", syscall.Getpid())
 }
 
