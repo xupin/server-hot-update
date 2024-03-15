@@ -17,19 +17,17 @@ import (
 )
 
 type Server struct {
-	http     http.Server
 	listener net.Listener
 	exit     chan bool
 	conns    map[string]*network.WsConn
 }
 
 func main() {
-	svr := NewServer(":8550")
-	http.HandleFunc("/ws", svr.handler)
-	svr.ListenAndServe()
+	svr := NewServer()
+	svr.ListenAndServe(":8550")
 }
 
-func (r *Server) handler(w http.ResponseWriter, req *http.Request) {
+func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// ws实例
 	conn := network.NewWS(&network.Options{})
 	if err := conn.Open(w, req); err != nil {
@@ -54,23 +52,22 @@ func (r *Server) handler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func NewServer(addr string) (svr *Server) {
+func NewServer() (svr *Server) {
 	svr = &Server{
 		exit:  make(chan bool, 1),
 		conns: make(map[string]*network.WsConn, 0),
 	}
-	svr.http.Addr = addr
 	return
 }
 
-func (r *Server) ListenAndServe() {
+func (r *Server) ListenAndServe(addr string) {
 	var err error
 	if r.isChild() {
 		// fd预留：0stdin、1stdout、2stderr
 		f := os.NewFile(3, "")
 		r.listener, err = net.FileListener(f)
 	} else {
-		r.listener, err = net.Listen("tcp", r.http.Addr)
+		r.listener, err = net.Listen("tcp", addr)
 	}
 	if err != nil {
 		panic(err)
@@ -81,13 +78,19 @@ func (r *Server) ListenAndServe() {
 	if r.isChild() {
 		syscall.Kill(syscall.Getppid(), syscall.SIGTERM)
 	}
-	// 启动服务
-	if err = r.http.Serve(r.listener); err != nil {
+	// http服务
+	httpServer := http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+	if err = httpServer.Serve(r.listener); err != nil {
 		log.Printf("服务[%d]异常 %v", syscall.Getpid(), err)
 	}
 	select {
 	case <-r.exit:
+		httpServer.Close()
 	case <-time.After(120 * time.Second):
+		httpServer.Close()
 	}
 	log.Printf("服务[%d]已关闭", syscall.Getpid())
 }
@@ -130,7 +133,7 @@ func (r *Server) reload() error {
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	// 文件描述
+	// 文件描述符
 	cmd.ExtraFiles = []*os.File{f}
 	// 执行
 	return cmd.Start()
@@ -165,8 +168,6 @@ func (r *Server) shutdown() {
 		wg.Wait()
 		log.Printf("超时关闭连接")
 	}
-	// 关闭服务
-	r.http.Close()
 	r.exit <- true
 }
 
