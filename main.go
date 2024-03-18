@@ -126,6 +126,7 @@ func (r *Server) reload() error {
 	cmd.Env = []string{
 		"SERVER_RELOAD=1",
 	}
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	// 文件描述符
